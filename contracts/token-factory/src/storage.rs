@@ -49,21 +49,8 @@ pub fn get_token_count(env: &Env) -> u32 {
         .unwrap_or(0)
 }
 
-pub fn increment_token_count(env: &Env) -> u32 {
-    let count = get_token_count(env);
-    let new_count = count + 1;
-    env.storage()
-        .instance()
-        .set(&DataKey::TokenCount, &new_count);
-    new_count
-}
-
 pub fn get_token_info(env: &Env, index: u32) -> Option<TokenInfo> {
     env.storage().instance().get(&DataKey::Token(index))
-}
-
-pub fn set_token_info(env: &Env, index: u32, info: &TokenInfo) {
-    env.storage().instance().set(&DataKey::Token(index), info);
 }
 
 // Get factory state
