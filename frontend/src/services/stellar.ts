@@ -1,81 +1,137 @@
-import {
-    Contract,
-    SorobanRpc,
-    TransactionBuilder,
-    Networks,
-    BASE_FEE,
-    xdr,
-    scValToNative,
-    nativeToScVal,
-    Address,
-} from '@stellar/stellar-sdk';
+import * as StellarSdk from '@stellar/stellar-sdk';
 import { STELLAR_CONFIG, getNetworkConfig } from '../config/stellar';
-import type { TokenDeployParams, DeploymentResult, TokenInfo } from '../types';
+import type { TokenInfo, TransactionDetails, AppError } from '../types';
+import { ErrorCode } from '../types';
 
 export class StellarService {
-    private server: SorobanRpc.Server;
-    private networkPassphrase: string;
-    private network: 'testnet' | 'mainnet';
+  private network: 'testnet' | 'mainnet';
+  private server: StellarSdk.SorobanRpc.Server;
+  private horizonServer: StellarSdk.Horizon.Server;
+  private networkPassphrase: string;
+  private contractClient: StellarSdk.Contract | null = null;
 
-    constructor(network: 'testnet' | 'mainnet' = 'testnet') {
-        this.network = network;
-        const config = getNetworkConfig(network);
-        this.server = new SorobanRpc.Server(config.sorobanRpcUrl);
-        this.networkPassphrase = config.networkPassphrase;
+  constructor(network: 'testnet' | 'mainnet' = 'testnet') {
+    this.network = network;
+    const config = getNetworkConfig(network);
+    
+    this.server = new StellarSdk.SorobanRpc.Server(config.sorobanRpcUrl);
+    this.horizonServer = new StellarSdk.Horizon.Server(config.horizonUrl);
+    this.networkPassphrase = config.networkPassphrase;
+    
+    this.initializeContractClient();
+  }
+
+  private initializeContractClient(): void {
+    const contractId = STELLAR_CONFIG.factoryContractId;
+    if (!contractId) {
+      console.warn('Factory contract ID not configured');
+      return;
     }
 
-    /**
-     * Deploy a new token through the factory contract
-     */
-    async deployToken(params: TokenDeployParams, sourceAddress: string): Promise<DeploymentResult> {
-        try {
-            const contract = new Contract(STELLAR_CONFIG.factoryContractId);
-            
-            // Build contract invocation
-            const operation = contract.call(
-                'create_token',
-                nativeToScVal(params.name, { type: 'string' }),
-                nativeToScVal(params.symbol, { type: 'string' }),
-                nativeToScVal(params.decimals, { type: 'u32' }),
-                nativeToScVal(params.initialSupply, { type: 'i128' }),
-                nativeToScVal(params.adminWallet, { type: 'address' }),
-                nativeToScVal(this.calculateTotalFee(params), { type: 'i128' })
-            );
+    try {
+      this.contractClient = new StellarSdk.Contract(contractId);
+    } catch (error) {
+      throw this.createError(
+        ErrorCode.CONTRACT_ERROR,
+        'Failed to initialize contract client',
+        error instanceof Error ? error.message : undefined
+      );
+    }
+  }
 
-            const account = await this.server.getAccount(sourceAddress);
-            const transaction = new TransactionBuilder(account, {
-                fee: BASE_FEE,
-                networkPassphrase: this.networkPassphrase,
-            })
-                .addOperation(operation)
-                .setTimeout(30)
-                .build();
+  switchNetwork(network: 'testnet' | 'mainnet'): void {
+    if (this.network === network) return;
 
-            // Simulate transaction
-            const simulated = await this.server.simulateTransaction(transaction);
-            if (SorobanRpc.Api.isSimulationError(simulated)) {
-                throw new Error(`Simulation failed: ${simulated.error}`);
-            }
+    this.network = network;
+    const config = getNetworkConfig(network);
+    
+    this.server = new StellarSdk.SorobanRpc.Server(config.sorobanRpcUrl);
+    this.horizonServer = new StellarSdk.Horizon.Server(config.horizonUrl);
+    this.networkPassphrase = config.networkPassphrase;
+    
+    this.initializeContractClient();
+  }
 
-            // Prepare transaction
-            const prepared = SorobanRpc.assembleTransaction(transaction, simulated).build();
+  getNetwork(): 'testnet' | 'mainnet' {
+    return this.network;
+  }
 
-            return {
-                tokenAddress: '', // Will be populated after signing and submission
-                transactionHash: prepared.hash().toString('hex'),
-                totalFee: this.calculateTotalFee(params).toString(),
-                timestamp: Date.now(),
-            };
-        } catch (error) {
-            throw this.handleError(error);
-        }
+  getContractClient(): StellarSdk.Contract {
+    if (!this.contractClient) {
+      throw this.createError(
+        ErrorCode.CONTRACT_ERROR,
+        'Contract client not initialized',
+        'Factory contract ID not configured'
+      );
+    }
+    return this.contractClient;
+  }
+
+  async getTokenInfo(tokenAddress: string): Promise<TokenInfo> {
+    try {
+      StellarSdk.Address.fromString(tokenAddress);
+    } catch {
+      throw this.createError(ErrorCode.INVALID_INPUT, 'Invalid token address');
     }
 
-    /**
-     * Mint additional tokens to a recipient address
-     * @param tokenAddress - The address of the deployed token contract
-     * @param recipient - The address to receive the minted tokens
-     * @param amount - The amount of tokens to mint (as string to handle large numbers)
-     * @param adminAddress - The admin address authorized to mint tokens
-     * @returns Transaction hash
-     */
+    try {
+      const txHistory = await this.horizonServer
+        .transactions()
+        .forAccount(tokenAddress)
+        .limit(1)
+        .order('asc')
+        .call();
+
+      const firstTx = txHistory.records[0];
+
+      return {
+        address: tokenAddress,
+        name: '',
+        symbol: '',
+        decimals: 7,
+        totalSupply: '0',
+        creator: firstTx?.source_account || '',
+        metadataUri: undefined,
+        deployedAt: firstTx ? new Date(firstTx.created_at).getTime() : Date.now(),
+        transactionHash: firstTx?.hash || '',
+      };
+    } catch (error) {
+      throw this.createError(
+        ErrorCode.NETWORK_ERROR,
+        'Failed to fetch token info',
+        error instanceof Error ? error.message : undefined
+      );
+    }
+  }
+
+  async getTransaction(hash: string): Promise<TransactionDetails> {
+    try {
+      const tx = await this.horizonServer.transactions().transaction(hash).call();
+      
+      return {
+        hash,
+        status: tx.successful ? 'success' : 'failed',
+        timestamp: new Date(tx.created_at).getTime(),
+        fee: tx.fee_charged || '0',
+      };
+    } catch (error) {
+      if (error instanceof StellarSdk.NotFoundError) {
+        return {
+          hash,
+          status: 'pending',
+          timestamp: Date.now(),
+          fee: '0',
+        };
+      }
+      throw this.createError(
+        ErrorCode.NETWORK_ERROR,
+        'Failed to fetch transaction',
+        error instanceof Error ? error.message : undefined
+      );
+    }
+  }
+
+  private createError(code: string, message: string, details?: string): AppError {
+    return { code, message, details };
+  }
+}

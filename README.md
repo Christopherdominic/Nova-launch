@@ -3,10 +3,11 @@
 <div align="center">
 
 ![Stellar](https://img.shields.io/badge/Stellar-Soroban-7D00FF?style=for-the-badge&logo=stellar)
-![React](https://img.shields.io/badge/React-18-61DAFB?style=for-the-badge&logo=react)
+![React](https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?style=for-the-badge&logo=typescript)
 ![Rust](https://img.shields.io/badge/Rust-2021-000000?style=for-the-badge&logo=rust)
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
+![Coverage](https://img.shields.io/badge/Coverage->80%25-brightgreen?style=for-the-badge)
 
 **A user-friendly dApp for quick token deployment on Stellar, targeting creators in Nigeria and emerging markets.**
 
@@ -283,23 +284,25 @@ soroban contract optimize \
 #### Deploy Contract to Testnet
 
 ```bash
-# Deploy
-soroban contract deploy \
-  --wasm target/wasm32-unknown-unknown/release/token_factory.wasm \
-  --network testnet \
-  --source admin
+# Quick deployment (recommended)
+./scripts/deploy-testnet.sh
 
-# Initialize factory
-soroban contract invoke \
-  --id <CONTRACT_ID> \
-  --network testnet \
-  --source admin \
-  -- initialize \
-  --admin <ADMIN_ADDRESS> \
-  --treasury <TREASURY_ADDRESS> \
-  --base_fee 70000000 \
-  --metadata_fee 30000000
+# This script will:
+# - Verify admin identity
+# - Create treasury identity if needed
+# - Deploy the contract
+# - Initialize with proper configuration
+# - Save deployment info to deployment-testnet.json
+# - Run basic smoke tests
+
+# Verify deployment
+./scripts/verify-deployment.sh
+
+# Update frontend environment
+./scripts/update-frontend-env.sh
 ```
+
+For detailed deployment instructions, see [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md).
 
 ---
 
