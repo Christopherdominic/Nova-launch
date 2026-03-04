@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use soroban_sdk::{contracterror, contracttype, Address, String};
+use soroban_sdk::{contracterror, contracttype, Address, String, Vec};
 
 /// Factory state containing administrative configuration
 ///
@@ -60,6 +60,8 @@ pub struct ContractMetadata {
 /// * `created_at` - Unix timestamp of token creation
 /// * `total_burned` - Cumulative amount of tokens burned
 /// * `burn_count` - Number of burn operations performed
+/// * `metadata_uri` - Optional IPFS URI for additional metadata
+/// * `created_at` - Unix timestamp of token creation
 /// * `clawback_enabled` - Whether admin can burn from any address
 ///
 /// # Examples
@@ -82,7 +84,24 @@ pub struct TokenInfo {
     pub burn_count: u32,
     pub metadata_uri: Option<String>,
     pub created_at: u64,
+    pub is_paused: bool,   // NEW — token-level pause flag
+    pub is_paused: bool,
+}
+
+/// Compact read-only snapshot of a token's current state.
+/// Returned by get_token_stats().
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TokenStats {
+    pub current_supply: i128,  // live circulating supply
+    pub total_burned:   i128,  // cumulative amount burned since creation
+    pub burn_count:     u32,   // number of burn operations performed
+    pub is_paused:      bool,  // token-level pause flag
+    pub has_clawback:   bool,  // clawback policy flag (reserved; always false for now)
+    pub total_burned: i128,
+    pub burn_count: u32,
     pub clawback_enabled: bool,
+    pub freeze_enabled: bool,
 }
 
 /// Batch fee update structure for Phase 2 optimization
@@ -144,6 +163,9 @@ pub enum DataKey {
     Token(u32),
     Balance(u32, Address),
     BurnCount(u32),
+    TokenPaused(u32),      // NEW — token_index -> bool
+    TokenPaused(u32),
+    TotalBurned(u32),   // NEW — cumulative burned amount per token
     TokenByAddress(Address),
     Paused,
     TimelockConfig,
@@ -192,6 +214,18 @@ pub enum DataKey {
 #[contracterror]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Error {
+    InsufficientFee     = 1,
+    Unauthorized        = 2,
+    InvalidParameters   = 3,
+    TokenNotFound       = 4,
+    MetadataAlreadySet  = 5,
+    AlreadyInitialized  = 6,
+    InsufficientBalance = 7,
+    ArithmeticError     = 8,
+    BatchTooLarge       = 9,
+    TokenPaused         = 10,  // NEW
+}
+    TokenPaused         = 10,
     InsufficientFee = 1,
     Unauthorized = 2,
     InvalidParameters = 3,
@@ -331,3 +365,4 @@ pub struct WithdrawalPeriod {
     pub period_start: u64,
     pub amount_withdrawn: i128,
 }
+
