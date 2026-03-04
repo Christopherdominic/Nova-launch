@@ -1814,3 +1814,10 @@ mod treasury_integration_test;
 
 #[cfg(test)]
 mod auth_fuzz_test;
+
+// Mutation testing - targeted tests to kill high-risk mutants
+#[cfg(test)]
+mod mutation_auth_tests;
+
+#[cfg(test)]
+mod mutation_arithmetic_tests;
