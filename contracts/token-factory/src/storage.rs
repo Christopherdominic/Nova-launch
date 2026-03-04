@@ -130,6 +130,35 @@ pub fn increment_burn_count(env: &Env, token_index: u32) {
 
 // ── Burn feature additions ─────────────────────────────────
 
+// ── Token-level pause ─────────────────────────────────────
+
+pub fn is_token_paused(env: &Env, token_index: u32) -> bool {
+    env.storage()
+        .instance()
+        .get(&crate::types::DataKey::TokenPaused(token_index))
+        .unwrap_or(false)
+}
+
+pub fn set_token_paused(env: &Env, token_index: u32, paused: bool) {
+    env.storage()
+        .instance()
+        .set(&crate::types::DataKey::TokenPaused(token_index), &paused);
+}
+
+pub fn get_total_burned(env: &Env, token_index: u32) -> i128 {
+    env.storage()
+        .persistent()
+        .get(&crate::types::DataKey::TotalBurned(token_index))
+        .unwrap_or(0)
+}
+
+pub fn add_total_burned(env: &Env, token_index: u32, amount: i128) {
+    let current = get_total_burned(env, token_index);
+    let updated = current.checked_add(amount).unwrap_or(i128::MAX);
+    env.storage()
+        .persistent()
+        .set(&crate::types::DataKey::TotalBurned(token_index), &updated);
+}
 // Pause management
 pub fn is_paused(env: &Env) -> bool {
     env.storage()

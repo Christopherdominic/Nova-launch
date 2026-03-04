@@ -11,6 +11,18 @@ mod pagination;
 mod mint;
 mod treasury;
 
+use soroban_sdk::{contract, contractimpl, Address, Env};
+use types::{Error, FactoryState, TokenInfo, TokenStats};
+
+use soroban_sdk::{contract, contractimpl, Address, Env, String};
+use types::{ContractMetadata, Error, FactoryState, TokenInfo};
+
+// Contract metadata constants
+const CONTRACT_NAME: &str = "Nova Launch Token Factory";
+const CONTRACT_DESCRIPTION: &str = "No-code token deployment on Stellar";
+const CONTRACT_AUTHOR: &str = "Nova Launch Team";
+const CONTRACT_LICENSE: &str = "MIT";
+const CONTRACT_VERSION: &str = "1.0.0";
 use soroban_sdk::{contract, contractimpl, Address, Env, String, Vec};
 use types::{Error, FactoryState, TokenInfo, TokenCreationParams};
 
@@ -424,6 +436,14 @@ impl TokenFactory {
         // Emit optimized event
         events::emit_fees_updated(&env, new_base_fee, new_metadata_fee);
 
+    /// Get token info by index
+   pub fn get_token_info(env: Env, index: u32) -> Result<TokenInfo, Error> {
+    let mut info = storage::get_token_info(&env, index).ok_or(Error::TokenNotFound)?;
+    info.is_paused = storage::is_token_paused(&env, index);   // ADD
+    Ok(info)
+}
+    /// Create a new token (Simulated for registry)
+    pub fn create_token(
         Ok(())
     }
 
@@ -513,6 +533,17 @@ impl TokenFactory {
         // Validate fees after update
         validation::validate_fees(&env)?;
 
+        let info = TokenInfo {
+            address: token_address.clone(),
+            creator,
+            name,
+            symbol,
+            decimals,
+            total_supply: initial_supply,
+            metadata_uri,
+            created_at: env.ledger().timestamp(),
+            is_paused: false, 
+        };
         // Get final state for event
         let final_base_fee = base_fee.unwrap_or_else(|| storage::get_base_fee(&env));
         let final_metadata_fee = metadata_fee.unwrap_or_else(|| storage::get_metadata_fee(&env));
@@ -570,6 +601,13 @@ impl TokenFactory {
         storage::get_token_info(&env, index).ok_or(Error::TokenNotFound)
     }
 
+    /// Update metadata for a token (must not be set already)
+   pub fn set_metadata(env: Env, index: u32, new_metadata_uri: soroban_sdk::String) -> Result<(), Error> {
+    let mut info = storage::get_token_info(&env, index).ok_or(Error::TokenNotFound)?;
+
+    if storage::is_token_paused(&env, index) {   // ADD
+        return Err(Error::TokenPaused);          // ADD
+    }                                            // ADD
     /// Get token information by contract address
     ///
     /// Retrieves complete information about a token using its
@@ -718,8 +756,13 @@ impl TokenFactory {
         // Emit optimized event
         events::emit_clawback_toggled(&env, &token_address, &admin, enabled);
 
-        Ok(())
+    if info.metadata_uri.is_some() {
+        return Err(Error::MetadataAlreadySet);
     }
+    info.metadata_uri = Some(new_metadata_uri);
+    storage::set_token_info(&env, index, &info);
+    Ok(())
+}
 
     /// Burn tokens from caller's own balance
     ///
@@ -883,6 +926,44 @@ impl TokenFactory {
         Ok(())
     }
 
+    pub fn pause_token(env: Env, admin: Address, token_index: u32) -> Result<(), Error> {
+        admin.require_auth();
+        if admin != storage::get_admin(&env) {
+            return Err(Error::Unauthorized);
+        }
+        storage::get_token_info(&env, token_index).ok_or(Error::TokenNotFound)?;
+        storage::set_token_paused(&env, token_index, true);
+        Ok(())
+    }
+
+    pub fn unpause_token(env: Env, admin: Address, token_index: u32) -> Result<(), Error> {
+        admin.require_auth();
+        if admin != storage::get_admin(&env) {
+            return Err(Error::Unauthorized);
+        }
+        storage::get_token_info(&env, token_index).ok_or(Error::TokenNotFound)?;
+        storage::set_token_paused(&env, token_index, false);
+        Ok(())
+    }
+
+    pub fn is_token_paused(env: Env, token_index: u32) -> bool {
+        storage::is_token_paused(&env, token_index)
+    }
+
+    /// Return a compact stats snapshot for a token
+    pub fn get_token_stats(env: Env, token_index: u32) -> Result<TokenStats, Error> {
+        storage::get_token_info(&env, token_index).ok_or(Error::TokenNotFound)?;
+
+        Ok(TokenStats {
+            current_supply: storage::get_token_info(&env, token_index)
+                .map(|i| i.total_supply)
+                .unwrap_or(0),
+            total_burned:   storage::get_total_burned(&env, token_index),
+            burn_count:     storage::get_burn_count(&env, token_index),
+            is_paused:      storage::is_token_paused(&env, token_index),
+            has_clawback:   false,
+        })
+    }
     // ═══════════════════════════════════════════════════════════════════════
     // Timelock Functions
     // ═══════════════════════════════════════════════════════════════════════
@@ -1518,6 +1599,12 @@ mod supply_conservation_test;
 // mod fuzz_test;
 
 #[cfg(test)]
+mod token_pause_test;
+
+
+#[cfg(test)]
+mod token_stats_test;
+
 mod integration_test;
 
 mod gas_benchmark_comprehensive;
