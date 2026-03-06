@@ -15,11 +15,20 @@ mod pagination;
 mod mint;
 mod treasury;
 mod vesting;
+mod stream_types;
 mod differential_engine;
 #[cfg(test)]
 mod comprehensive_differential_tests;
 #[cfg(test)]
 mod differential_proptest;
+#[cfg(test)]
+mod stream_metadata_test;
+#[cfg(test)]
+mod stream_metadata_update_test;
+#[cfg(test)]
+mod stream_claim_parity_test_standalone;
+#[cfg(test)]
+mod stream_auth_test;
 
 use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, String, Vec, Vec as SorobanVec};
 use types::{ContractMetadata, Error, FactoryState, TokenInfo, TokenCreationParams, StreamInfo, StreamParams, TokenStats, TimelockConfig};
@@ -1728,3 +1737,6 @@ mod streaming_integration_test;
 
 #[cfg(test)]
 mod stateful_model_test;
+
+#[cfg(test)]
+mod stateful_model_based_test;
